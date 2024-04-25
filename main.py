@@ -13,32 +13,42 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-m", "--model_name", type=str, default="qwen1.5-7b-chat") # 模型代号
 parser.add_argument("-k", "--knowledge_type", type=str, default="theory") # 题目考察的知识类型，可选值：theory, moral, cases
 parser.add_argument("-q", "--question_type", type=str, default="single") # 题目类型，可选值：single, multiple, mix, essay（只有案例题有mix和essay）
+parser.add_argument("-s", "--scope", type=str, default="all") # 题目范围，可选值：second（二级）, third（三级）, all（所有题目）
+parser.add_argument("-p", "--sleep_time", type=float, default=0.1) # 每题完成后的休眠时间，主要是应对调用API时的QPS限制
 parser.add_argument("-l", "--local", type=bool, default=False) # 是否为本地部署模型
+parser.add_argument("--all_in_one", action="store_true", default=False) # 一次完成所有类型题目的评估，建议只用于本地模型的测试
 args = parser.parse_args()
 
-model_name = args.model_name
-knowledge_type = args.knowledge_type
-question_type = args.question_type
-b_local = args.local
-
+print("模型加载中...")
+# 模型调用，包括API调用与本地调用
+model = LLMTransfer(args.model_name, temperature=10e-3, b_local=args.local)
+print("模型加载完毕！")
 
 # model_name = 'qwen1.5-14b-chat'
 # model_name = 'baichuan2-13b-chat'
 # model_name = 'chinese-alpaca-2-13b'
 # model_name = 'sft_qwen1.5_4k'
 # model_name = "chatglm3-6b-32k"
-# knowledge_type = 'theory'
-# question_type = 'multiple'
 
-# 题目文件名
-question_file_dict = {}
-question_file_dict['theory_single_question_files'] = ['11-13,17-18 理论单选.json', '14-16 理论单选.json']
-question_file_dict['theory_multiple_question_files'] = ['11-16 理论多选.json', '17-18 理论多选.json']
-question_file_dict['moral_single_question_files'] = ['14-16 职业道德单选.json']
-question_file_dict['moral_multiple_question_files'] = ['11-18 职业道德多选.json', '17-18 职业道德多选.json']
-question_file_dict['cases_mix_question_files'] = ['11-13 案例混合选择.json', '14-16 案例混合选择.json', '17-18 案例混合选择.json']
-question_file_dict['cases_essay_question_files'] = ['11-13 案例问答.json', '14-15 案例问答.json', '17-18 案例问答.json']
-question_file_name = question_file_dict[f'{knowledge_type}_{question_type}_question_files']
+'''
+遍历filepath下所有文件，包括子目录，列出测评范围内的所有题目文件
+'''
+def get_question_files(question_file_path:str, scope:str) -> list:
+    question_files = []
+    def gci(file_path:str) -> None:
+        files = os.listdir(file_path)
+        for file in files:
+            sub_file_path = os.path.join(file_path, file)            
+            if os.path.isdir(sub_file_path):
+                gci(sub_file_path)                  
+            else:
+                question_files.append(sub_file_path)
+    if scope == 'all':
+        gci(question_file_path)
+    else:
+        gci(os.path.join(question_file_path, scope))
+    return question_files
+
 
 
 '''
@@ -58,23 +68,31 @@ def correct_rate_compute(model_answer:str, true_answer:str) -> tuple:
 '''
 负责处理非案例问题（一题一问）的函数
 '''
-def general_question_run(model_name:str, question_files:str, result_file:str, question_type:str) -> None:
+def general_question(
+        question_files:str, 
+        result_file:str, 
+        model_name:str, 
+        knowledge_type:str, 
+        question_type:str, 
+        scope:str="all", 
+        sleep_time:float=0.1, 
+        b_local:bool=False,
+        temperature:float=10e-4,
+    ) -> None:
     # Handler的作用包括：问题提取，答案提取
     question_handler = GeneralQuestionHandler(question_files, result_file, question_type)
-    # 模型调用，包括API调用与本地调用
-    model_api = LLMTransfer(model_name, b_local=b_local)
     # 记录评估结果的参数
     sum_correct_rate, completely_correct_count, partially_correct_count, wrong_count, total_count = 0., 0, 0, 0, len(question_handler.questions)
     answers = pd.DataFrame({'模型答案': [], '真实答案': []})
     # 开始测评
     print('-' * 50 + "测评开始" + '-' * 50)
-    print(f"模型代号：{model_name}，测评知识类型：{knowledge_type}，题目类型：{question_type}，题目数量：{total_count}。")
+    print(f"模型代号：{model_name}，测评知识类型：{knowledge_type}，题目类型：{question_type}，测评范围：{scope}，题目数量：{total_count}。")
     with alive_bar(total_count, title=f"正在测评{model_name}模型", bar="smooth", spinner="waves2") as bar:
         for i in range(total_count):
             # 生成prompt
             prompt = question_handler.prompt_generation(question_handler.questions[i], question_handler.contents[i]['options'])
             # 调用接口
-            response = model_api.call_with_prompt(prompt)
+            response = model.call_with_prompt(prompt)
             # 提取答案
             true_answer = question_handler.true_answers[i]
             model_answer = question_handler.model_answer_processing(response)
@@ -96,7 +114,7 @@ def general_question_run(model_name:str, question_files:str, result_file:str, qu
                     print(f'目前已回答{i + 1}题，{completely_correct_count}题正确，{wrong_count}题错误。正确率：{(completely_correct_count / (i + 1)) * 100}%')
                 else:
                     print(f'目前已回答{i + 1}题，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选。严格正确率：{(completely_correct_count / (i + 1)) * 100}%，弹性正确率：{(sum_correct_rate / (i + 1)) * 100}%')
-            time.sleep(0.1)
+            time.sleep(sleep_time)
             bar()
     
     # 测评总结
@@ -117,24 +135,32 @@ def general_question_run(model_name:str, question_files:str, result_file:str, qu
 '''
 负责处理案例问题（一题多问）的函数
 '''
-def case_question_run(model_name:str, question_files:str, result_file:str, question_type:str) -> None:
+def case_question(
+        question_files:str, 
+        result_file:str, 
+        model_name:str, 
+        knowledge_type:str, 
+        question_type:str, 
+        scope:str="all", 
+        sleep_time:float=0.1, 
+        b_local:bool=False,
+        temperature:float=10e-4,
+    ) -> None:
     # Handler的作用包括：问题提取，答案提取
     question_handler = CaseQuestionHandler(question_files, result_file, question_type)
-    # 模型调用，包括API调用与本地调用
-    model_api = LLMTransfer(model_name, b_local=b_local)
     # 记录评估结果的参数
     sum_correct_rate, completely_correct_count, partially_correct_count, wrong_count, total_count, missing_count = 0., 0, 0, 0, 0, 0
     questions_len = len(question_handler.contents)
     answers = pd.DataFrame({'题号': [], '模型答案': [], '正确答案': []})
     # 开始测评
     print('-' * 50 + "测评开始" + '-' * 50)
-    print(f'模型代号：{model_name}，测评知识类型：{knowledge_type}，题目类型：{question_type}，大题数量：{questions_len}。')
+    print(f'模型代号：{model_name}，测评知识类型：{knowledge_type}，题目类型：{question_type}，测评范围：{scope}，大题数量：{questions_len}。')
     with alive_bar(questions_len, title=f"正在测评{model_name}模型", bar="smooth", spinner="waves2") as bar:
         for i in range(questions_len):
             prompts = question_handler.prompt_generation(i)
             for j, prompt in enumerate(prompts):
                 # 调用接口，提交问题
-                response = model_api.call_with_prompt(prompt)
+                response = model.call_with_prompt(prompt)
                 # 从回复中提取答案
                 true_answer = question_handler.true_answers[i][j]
                 if question_type == 'mix':
@@ -160,7 +186,7 @@ def case_question_run(model_name:str, question_files:str, result_file:str, quest
             # 输出进度
             if question_type == "mix" and (i + 1) % 10 == 0:
                 print(f'目前已回答{i + 1}道大题，共包含{total_count}道具体题目。其中，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选，{missing_count}题未答或漏答。严格正确率：{(completely_correct_count / total_count) * 100}%，弹性正确率：{(sum_correct_rate / total_count) * 100}%')
-            time.sleep(0.1)
+            time.sleep(sleep_time)
             bar()
     
     if question_type == "mix":
@@ -179,12 +205,64 @@ def case_question_run(model_name:str, question_files:str, result_file:str, quest
     print('-' * 50 + "测评结束" + '-' * 50)
 
 
-if __name__ == '__main__':
-    question_files = [os.path.dirname(os.path.abspath(__file__)) + '/questions/' + knowledge_type + '/' + file for file in question_file_name]
-    result_file = model_name + '_' + datetime.datetime.now().strftime('%Y%m%d-%Hh%Mm%Ss') + '.csv'  # 测评结果保存位置
-    result_file = os.path.dirname(os.path.abspath(__file__)) + '/results/' + knowledge_type + '/' + question_type + '/' + result_file
+def run(
+        model_name:str, 
+        knowledge_type:str, 
+        question_type:str, 
+        scope:str, 
+        sleep_time:float=0.1, 
+        b_local:bool=False,
+        temperature:float=10e-4,
+    ) -> None:
+    # 问题保存路径
+    question_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "questions", knowledge_type, question_type)
+    question_files = get_question_files(question_file_path, scope)
+    # 答案保存路径
+    result_file_name = model_name + '_' + datetime.datetime.now().strftime('%Y%m%d-%Hh%Mm%Ss') + '.csv'
+    result_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", knowledge_type, question_type, scope, result_file_name)
     # 根据题目类型，运行对应的测评函数
     if knowledge_type == "theory" or knowledge_type == "moral":
-        general_question_run(model_name, question_files, result_file, question_type)
+        general_question(question_files, result_file, model_name, knowledge_type, question_type, scope, sleep_time, b_local, temperature)
     else:
-        case_question_run(model_name, question_files, result_file, question_type)
+        case_question(question_files, result_file, model_name, knowledge_type, question_type, scope, sleep_time, b_local, temperature)
+
+'''
+一次运行所有题目，逐一测试，只适用于本地模型
+'''
+def all_in_one(model_name:str, scope:str, sleep_time) -> None:
+    # 理论知识-单选题
+    print('*' * 50 + "理论知识-单选题" + '*' * 50)
+    run(model_name, 'theory', 'single', scope, sleep_time)
+    print('*' * 115)
+    time.sleep(sleep_time)
+    # 理论知识-多选题
+    print('*' * 50 + "理论知识-多选题" + '*' * 50)
+    run(model_name, 'theory', 'multiple', scope, sleep_time)
+    print('*' * 115)
+    time.sleep(sleep_time)
+    # 职业道德-单选题
+    print('*' * 50 + "职业道德-单选题" + '*' * 50)
+    run(model_name, 'moral', 'single', scope, sleep_time)
+    print('*' * 115)
+    time.sleep(sleep_time)
+    # 职业道德-多选题
+    print('*' * 50 + "职业道德-多选题" + '*' * 50)
+    run(model_name, 'moral', 'multiple', scope, sleep_time)
+    print('*' * 115)
+    time.sleep(sleep_time)
+    # 案例分析-混合选择题
+    print('*' * 50 + "案例分析-混合选择题" + '*' * 50)
+    run(model_name, 'cases', 'mix', scope, sleep_time)
+    print('*' * 115)
+    time.sleep(sleep_time)
+    # 案例分析-简答题
+    print('*' * 50 + "案例分析-简答题" + '*' * 50)
+    run(model_name, 'cases', 'essay', scope, sleep_time)
+    print('*' * 115)
+
+
+if __name__ == '__main__':
+    if args.all_in_one:
+        all_in_one(args.model_name, args.scope, args.sleep_time)
+    else:
+        run(*(vars(args).values()))

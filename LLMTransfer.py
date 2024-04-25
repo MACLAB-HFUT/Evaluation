@@ -7,13 +7,15 @@ from http import HTTPStatus
 from openai import OpenAI
 from time import sleep
 
-from deployment import Deployer
+from Deployment import Deployer
 
 class LLMTransfer:
-    def __init__(self, model_name:str, b_local:bool=False):
+    def __init__(self, model_name:str, temperature=10e-4, b_local:bool=False):
         self.model_name = model_name
+        self.temperature = temperature
+        self.b_local = b_local
         if b_local:
-            self.deployer = Deployer(model_name=model_name)
+            self.deployer = Deployer(model_name=model_name, temperature=temperature)
 
     '''
     阿里系千问大模型调用API
@@ -29,7 +31,7 @@ class LLMTransfer:
             # set the random seed, optional, default to 1234 if not set
             seed=2024,
             result_format='text',  # the format include 'text' and 'message'
-            temperature=10e-9,
+            temperature=self.temperature,
         )
         if response.status_code == HTTPStatus.OK:
             return response.output['text']
@@ -50,8 +52,8 @@ class LLMTransfer:
             使用 AK，SK 生成鉴权签名（Access Token）
             :return: access_token，或是None(如果错误)
             """
-            API_KEY = "FFLPiYpDzeErHvtIOyfqVU9A"
-            SECRET_KEY = "9FCwlVzejeEGdrnkAh8yQWI0q9xZZ399"
+            API_KEY = "jvyY9raEufISxdFTJVN1h229"
+            SECRET_KEY = "5bgNjaX1oIETYqOb1d7wNzGsA6ZDyndp"
             url = "https://aip.baidubce.com/oauth/2.0/token"
             params = {"grant_type": "client_credentials", "client_id": API_KEY, "client_secret": SECRET_KEY}
             return str(requests.post(url, params=params).json().get("access_token"))
@@ -60,12 +62,13 @@ class LLMTransfer:
         url = f"https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/{model_name}?access_token=" + get_access_token()
         
         payload = json.dumps({
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": self.temperature,
         })
         headers = {
             'Content-Type': 'application/json'
@@ -90,8 +93,7 @@ class LLMTransfer:
         url['qwen14B'] = 'http://3d8b77a6.r2.cpolar.top/v1'
         url['sft_qwen'] = 'https://642a2878.r18.cpolar.top/v1'
         url['sft_baichuan'] = 'http://642a2878.r18.cpolar.top/v1'
-        client = OpenAI(base_url="http://6fb8c7a5.r25.cpolar.top/v1", api_key="sk-coaihv832rfj0qaj09")
-        # client = OpenAI(base_url=url[self.model_name], api_key="sk-coaihv832rfj0qaj09")
+        client = OpenAI(base_url="http://apiserver1.vip.cpolar.cn/v1", api_key="sk-coaihv832rfj0qaj09")
         message = [
             {
                 "role": "user",
@@ -102,11 +104,12 @@ class LLMTransfer:
             model = "lora",
             messages = message,
             stream=False,
-            temperature=10e-9,
+            temperature=self.temperature,
             timeout=600
         )
+        # print(response.choices[0].message.content.strip())
 
-        return response.choices[1].message.content.strip()
+        return response.choices[0].message.content.strip()
     
     '''
     本地大模型调用API
@@ -115,11 +118,13 @@ class LLMTransfer:
         return self.deployer.response(prompt)
     
     def call_with_prompt(self, prompt:str) -> str:
-        if self.model_name in ['qwen1.5-7b-chat', 'qwen1.5-14b-chat']:
+        if self.b_local:
+            return self.call_with_prompt_local(prompt)
+        elif self.model_name in ['qwen1.5-7b-chat', 'qwen1.5-14b-chat', 'baichuan2-13b-chat-v1']:
             return self.call_with_prompt_qw(prompt)
-        if self.model_name in ['yi-34b-chat', 'qianfan-chinese-llama-2-7b', 'qianfan-chinese-llama-2-13b']:
+        elif self.model_name in ['yi-34b-chat', 'qianfan-chinese-llama-2-7b', 'qianfan-chinese-llama-2-13b']:
             return self.call_with_prompt_qf(prompt)
-        if self.model_name in ['sft-qwen1.5-14b', 'sft-baichuan2-13b', 'baichuan2-13b-chat']:
+        elif self.model_name in ['sft', 'sft-qwen1.5-14b', 'sft-baichuan2-13b']:
             return self.call_with_prompt_sft(prompt)
         else: # baichuan2-7b-chat, chatglm3-6b-32k, chinese-alpaca-2-7b, chinese-alpaca-2-13b
             return self.call_with_prompt_local(prompt)
