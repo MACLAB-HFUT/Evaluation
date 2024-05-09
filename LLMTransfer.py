@@ -93,15 +93,15 @@ class LLMTransfer:
         url['qwen14B'] = 'http://3d8b77a6.r2.cpolar.top/v1'
         url['sft_qwen'] = 'https://642a2878.r18.cpolar.top/v1'
         url['sft_baichuan'] = 'http://642a2878.r18.cpolar.top/v1'
-        client = OpenAI(base_url="http://apiserver1.vip.cpolar.cn/v1", api_key="sk-coaihv832rfj0qaj09")
+        client = OpenAI(base_url="http://llmsapi.cpolar.top/v1", api_key="sk-coaihv832rfj0qaj09")
+
         message = [
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "system", "content": prompt[0]},
+            {"role": "user", "content": prompt[1]},
         ]
+        
         response = client.chat.completions.create(
-            model = "lora",
+            model = "Qwen-14B-Chat-Lora",
             messages = message,
             stream=False,
             temperature=self.temperature,
@@ -118,16 +118,20 @@ class LLMTransfer:
         return self.deployer.response(prompt)
     
     def call_with_prompt(self, prompt:str) -> str:
+        whole_prompt = prompt[0] + prompt[1]
+        # if self.model_name == 'mindchat':
+        #     whole_prompt = "请帮我做一个心理学的选择题：\n" + prompt[1]
+        # # print(whole_prompt)
         if self.b_local:
-            return self.call_with_prompt_local(prompt)
+            return self.call_with_prompt_local(whole_prompt)
         elif self.model_name in ['qwen1.5-7b-chat', 'qwen1.5-14b-chat', 'baichuan2-13b-chat-v1']:
-            return self.call_with_prompt_qw(prompt)
+            return self.call_with_prompt_qw(whole_prompt)
         elif self.model_name in ['yi-34b-chat', 'qianfan-chinese-llama-2-7b', 'qianfan-chinese-llama-2-13b']:
-            return self.call_with_prompt_qf(prompt)
+            return self.call_with_prompt_qf(whole_prompt)
         elif self.model_name in ['sft', 'sft-qwen1.5-14b', 'sft-baichuan2-13b']:
             return self.call_with_prompt_sft(prompt)
         else: # baichuan2-7b-chat, chatglm3-6b-32k, chinese-alpaca-2-7b, chinese-alpaca-2-13b
-            return self.call_with_prompt_local(prompt)
+            return self.call_with_prompt_local(whole_prompt)
 
 if __name__ == '__main__':
     llm = LLMTransfer("chinese-alpaca-2-13b")

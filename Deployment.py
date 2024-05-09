@@ -1,4 +1,4 @@
-from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM, GenerationConfig, TextStreamer
+from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM, GenerationConfig
 import os
 import torch
 
@@ -18,11 +18,13 @@ class Deployer(object):
             "baichuan2-7b-chat": "baichuan-inc/baichuan2-7b-chat",
             "chinese-alpaca-2-7b": "hfl/chinese-alpaca-2-7b",
             "yi-6b-chat": "01-ai/yi-6b-chat",
+            "soulchat": "scutcyr/soulchat-chatglm-6b",
+            "mindchat": "X-D-Lab/mindchat-qwen-7b-v2"
         }
         self.model_name = model_name
         self.temperature = temperature
         self.model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", self.name2path[self.model_name])
-        if self.model_name in ['qwen1.5-7b', 'qwen1.5-7b-chat', "qwen1.5-14b-chat"]:
+        if self.model_name in ['qwen1.5-7b', 'qwen1.5-7b-chat', "qwen1.5-14b-chat", "mindchat"]:
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
                 torch_dtype="auto",
@@ -41,6 +43,13 @@ class Deployer(object):
                 torch_dtype="auto",
                 trust_remote_code=True
             )
+        elif self.model_name in ['soulchat']:
+            self.model = AutoModel.from_pretrained(
+                self.model_path, 
+                trust_remote_code=True,
+                device_map="auto",
+                torch_dtype='auto'
+            ).half().cuda()
         else:
             self.model = AutoModel.from_pretrained(
                 self.model_path, 
@@ -54,8 +63,9 @@ class Deployer(object):
         )
 
     def response(self, prompt:str) -> str:
-        if self.model_name in ['chatglm3-6b-32k']:
-            # model = self.model.eval()
+        if self.model_name in ['chatglm3-6b-32k', 'soulchat', 'mindchat']:
+            if self.model_name == 'soulchat':
+                prompt = "用户：" + prompt + "\n心理咨询师："
             response, history = self.model.chat(self.tokenizer, prompt, history=[], temperature=self.temperature)
         elif self.model_name in ['qwen1.5-7b', 'qwen1.5-7b-chat', "qwen1.5-14b-chat-int8"]:
             messages = [
@@ -94,7 +104,6 @@ class Deployer(object):
             messages = [
                 {"role": "user", "content": prompt}
             ]
-            print(messages)
             input_ids = self.tokenizer.apply_chat_template(conversation=messages, tokenize=True, add_generation_prompt=True, return_tensors='pt')
             output_ids = self.model.generate(input_ids.to('cuda'), max_length=256)
             response = self.tokenizer.decode(output_ids[0][input_ids.shape[1]:], skip_special_tokens=True)
@@ -104,7 +113,8 @@ class Deployer(object):
 
 if __name__ == '__main__':
     # model_path = os.path.dirname(os.path.abspath(__file__)) + "/hfl/chinese-alpaca-2-7b"
-    prompt = "你是一位专业的心理咨询助手，拥有丰富的心理学知识。现在有一道心理学知识的多项选择题，需要你利用自己的心理学知识进行解答\n选项中有多个是正确答案，请从ABCD四个选项中选出你认为正确的选项。【题目：躯体神经⽀配的器官包括（）。\n选项：{'A': '内脏器官', 'B': '腺体器官', 'C': '感觉器官', 'D': '运动器官'}】\n请不要质疑题目的正确性。如果你认为题干表述不清晰，请结合自己的心理学知识，给出自己的答案。\n答案（仅回复相应的字母编号）："
-    model_name = "yi-6b-chat"
+    prompt = "你是一位专业的心理咨询助手，拥有丰富的心理学知识。现在有一道心理学知识的多项选择题，需要你利用自己的心理学知识进行解答\n选项中有多个是正确答案，请从ABCD四个选项中选出你认为正确的选项。【题目：躯体神经⽀配的器官包括（）。\n选项：{'A': '内脏器官', 'B': '腺体器官', 'C': '感觉器官', 'D': '运动器官'}】\n你的答案是："
+    # prompt = "你好，请你帮我做一道心理学方面的选择题：\n题目：躯体神经⽀配的器官包括（）。\n选项：{'A': '内脏器官', 'B': '腺体器官', 'C': '感觉器官', 'D': '运动器官'}\n你的答案是："
+    model_name = "mindchat"
     deployer = Deployer(model_name)
     print(deployer.response(prompt))

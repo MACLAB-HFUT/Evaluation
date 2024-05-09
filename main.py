@@ -21,7 +21,7 @@ args = parser.parse_args()
 
 print("模型加载中...")
 # 模型调用，包括API调用与本地调用
-model = LLMTransfer(args.model_name, temperature=10e-3, b_local=args.local)
+model = LLMTransfer(args.model_name, temperature=10e-4, b_local=args.local)
 print("模型加载完毕！")
 
 # model_name = 'qwen1.5-14b-chat'
@@ -82,7 +82,7 @@ def general_question(
     # Handler的作用包括：问题提取，答案提取
     question_handler = GeneralQuestionHandler(question_files, result_file, question_type)
     # 记录评估结果的参数
-    sum_correct_rate, completely_correct_count, partially_correct_count, wrong_count, total_count = 0., 0, 0, 0, len(question_handler.questions)
+    sum_correct_rate, completely_correct_count, partially_correct_count, wrong_count, missing_count, total_count = 0., 0, 0, 0, 0, len(question_handler.questions)
     answers = pd.DataFrame({'模型答案': [], '真实答案': []})
     # 开始测评
     print('-' * 50 + "测评开始" + '-' * 50)
@@ -91,29 +91,35 @@ def general_question(
         for i in range(total_count):
             # 生成prompt
             prompt = question_handler.prompt_generation(question_handler.questions[i], question_handler.contents[i]['options'])
+            # prompt = question_handler.simple_prompt_generation(question_handler.questions[i], question_handler.contents[i]['options'])
+            # print(prompt)
             # 调用接口
             response = model.call_with_prompt(prompt)
+            # print(response)
             # 提取答案
             true_answer = question_handler.true_answers[i]
             model_answer = question_handler.model_answer_processing(response)
             # 计算完全正确、部分正确、多选与错选的题目个数
             answer_type, correct_rate = correct_rate_compute(model_answer, true_answer)
+            if model_answer == 'E':
+                missing_count += 1
             if answer_type == 0:
                 completely_correct_count += 1
             elif answer_type == 1:
                 partially_correct_count += 1
             else:
-                wrong_count += 1
+                wrong_count += 1 
             sum_correct_rate += correct_rate
             # 结果汇总
             answers.loc[i] = [model_answer, true_answer]
+            # print(response)
             # print(f'{i+1}. 模型答案：{model_answer} 正确答案：{true_answer}')
             # 输出进度
             if (i + 1) % 50 == 0:
                 if question_type == 'single':
                     print(f'目前已回答{i + 1}题，{completely_correct_count}题正确，{wrong_count}题错误。正确率：{(completely_correct_count / (i + 1)) * 100}%')
                 else:
-                    print(f'目前已回答{i + 1}题，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选。严格正确率：{(completely_correct_count / (i + 1)) * 100}%，弹性正确率：{(sum_correct_rate / (i + 1)) * 100}%')
+                    print(f'目前已回答{i + 1}题，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选，{missing_count}题未答或漏答。严格正确率：{(completely_correct_count / (i + 1)) * 100}%，弹性正确率：{(sum_correct_rate / (i + 1)) * 100}%')
             time.sleep(sleep_time)
             bar()
     
@@ -121,7 +127,7 @@ def general_question(
     if question_type == 'single':
         summary = f'共{total_count}题，{completely_correct_count}题正确，{wrong_count}题错误。正确率：{(completely_correct_count / (i + 1)) * 100}%'
     else:
-        summary = f'共{total_count}题，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选。严格正确率：{(completely_correct_count / total_count) * 100}%，弹性正确率：{(sum_correct_rate / total_count) * 100}%'
+        summary = f'共{total_count}题，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选，{missing_count}题未答或漏答。严格正确率：{(completely_correct_count / total_count) * 100}%，弹性正确率：{(sum_correct_rate / total_count) * 100}%'
     print(summary)
 
     # 保存结果
@@ -151,7 +157,7 @@ def case_question(
     # 记录评估结果的参数
     sum_correct_rate, completely_correct_count, partially_correct_count, wrong_count, total_count, missing_count = 0., 0, 0, 0, 0, 0
     questions_len = len(question_handler.contents)
-    answers = pd.DataFrame({'题号': [], '模型答案': [], '正确答案': []})
+    answers = pd.DataFrame({'题号': [], '求助者的个人信息': [], '心理咨询内容': [], '题目': [], '模型答案': [], '正确答案': []})
     # 开始测评
     print('-' * 50 + "测评开始" + '-' * 50)
     print(f'模型代号：{model_name}，测评知识类型：{knowledge_type}，题目类型：{question_type}，测评范围：{scope}，大题数量：{questions_len}。')
@@ -159,6 +165,7 @@ def case_question(
         for i in range(questions_len):
             prompts = question_handler.prompt_generation(i)
             for j, prompt in enumerate(prompts):
+                # print(question_handler.cases[i]['qa_pair'][j][0].strip())
                 # 调用接口，提交问题
                 response = model.call_with_prompt(prompt)
                 # 从回复中提取答案
@@ -168,6 +175,7 @@ def case_question(
                     model_answer = question_handler.model_answer_processing(response)
                     answer_type, correct_rate = correct_rate_compute(model_answer, true_answer)
                     if model_answer == 'E':
+                        print(f"{i+1}.{j+1}. 模型回复错误！\nprompt：{prompt}\nresponse：{response}")
                         missing_count += 1
                     elif answer_type == 0:
                         completely_correct_count += 1
@@ -180,7 +188,7 @@ def case_question(
                     # 对于简答题，整个回复都是模型的答案
                     model_answer = response
                 # 结果汇总
-                answers.loc[total_count] = [f"{i+1}.{j+1}", model_answer, true_answer]
+                answers.loc[total_count] = [f"{i+1}.{j+1}", question_handler.cases[i]['general_info'].strip(), question_handler.cases[i]['case_introduction'].strip(), question_handler.cases[i]['qa_pair'][j][0].strip(), model_answer, true_answer]
                 total_count += 1
                 # print(f'{i+1}.{j+1}. 模型答案：{model_answer} 正确答案：{true_answer}')
             # 输出进度
@@ -198,7 +206,7 @@ def case_question(
     print(summary)
 
     # 保存结果
-    answers.loc[len(answers.index)] = ['', '测评最终结果', summary]
+    answers.loc[len(answers.index)] = ['', '', '', '', '测评最终结果', summary]
     answers.index = range(1, len(answers) + 1)
     answers.to_csv(result_file)
     print("测评结果已保存至：" + result_file)
@@ -229,40 +237,40 @@ def run(
 '''
 一次运行所有题目，逐一测试，只适用于本地模型
 '''
-def all_in_one(model_name:str, scope:str, sleep_time) -> None:
+def all_in_one(model_name:str, scope:str, sleep_time:float, local:bool) -> None:
     # 理论知识-单选题
     print('*' * 50 + "理论知识-单选题" + '*' * 50)
-    run(model_name, 'theory', 'single', scope, sleep_time)
+    run(model_name, 'theory', 'single', scope, sleep_time, local)
     print('*' * 115)
     time.sleep(sleep_time)
     # 理论知识-多选题
     print('*' * 50 + "理论知识-多选题" + '*' * 50)
-    run(model_name, 'theory', 'multiple', scope, sleep_time)
+    run(model_name, 'theory', 'multiple', scope, sleep_time, local)
     print('*' * 115)
     time.sleep(sleep_time)
     # 职业道德-单选题
     print('*' * 50 + "职业道德-单选题" + '*' * 50)
-    run(model_name, 'moral', 'single', scope, sleep_time)
+    run(model_name, 'moral', 'single', scope, sleep_time, local)
     print('*' * 115)
     time.sleep(sleep_time)
     # 职业道德-多选题
     print('*' * 50 + "职业道德-多选题" + '*' * 50)
-    run(model_name, 'moral', 'multiple', scope, sleep_time)
+    run(model_name, 'moral', 'multiple', scope, sleep_time, local)
     print('*' * 115)
     time.sleep(sleep_time)
     # 案例分析-混合选择题
     print('*' * 50 + "案例分析-混合选择题" + '*' * 50)
-    run(model_name, 'cases', 'mix', scope, sleep_time)
+    run(model_name, 'cases', 'mix', scope, sleep_time, local)
     print('*' * 115)
     time.sleep(sleep_time)
     # 案例分析-简答题
     print('*' * 50 + "案例分析-简答题" + '*' * 50)
-    run(model_name, 'cases', 'essay', scope, sleep_time)
+    run(model_name, 'cases', 'essay', scope, sleep_time, local)
     print('*' * 115)
 
 
 if __name__ == '__main__':
     if args.all_in_one:
-        all_in_one(args.model_name, args.scope, args.sleep_time)
+        all_in_one(args.model_name, args.scope, args.sleep_time, args.local)
     else:
         run(*(vars(args).values()))

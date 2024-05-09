@@ -59,40 +59,29 @@ class GeneralQuestionHandler(QuestionHandler):
     def model_answer_processing(self, response):
         # 正则匹配表达式
         if self.question_type == 'single':
-            # answer_rule = r'(?<=【)[ABCD](?=】)'
-            answer_rule = r'[ABCD]$'
+            answer_rule = r"[ABCD](?!.*[ABCD])"
         else:
-            # answer_rule = r'(?<=【)[ABCD]+(?=】)'
-            answer_rule = r'[ABCD]+$'
-        # 尝试匹配
+            answer_rule = r"[ABCD]?['\"]?\s*[、,，和]?\s*[选项]*['\"]?[ABCD]?['\"]?\s*[、,，和]?\s*[选项]*['\"]?[ABCD]?['\"]?\s*[、,，和]?\s*[选项]*['\"]?[ABCD](?!.*[ABCD])"
         try:
-            answer = re.findall(answer_rule, response)[0]
+            answer_str = re.findall(answer_rule, response, re.S)[0]
+            answer_list = re.findall(r"[ABCD]+", answer_str)
+            answer = ''.join(answer_list)
         except:
-            # print(f'答案格式不匹配，尝试直接匹配第一次出现的字母...')
-            # print(f"模型回复：{response}")
-            try:
-                if self.question_type == 'single':
-                    answer_rule = r'\b[ABCD]'
-                else:
-                    # answer_rule = r'\b[ABCD]+'
-                    answer_rule = r'[^ABCD]*([ABCD]+)[^ABCD]*'
-                answer = re.findall(answer_rule, response)[0]
-            except:
-                # print('回答中没有包含答案！')
-                answer = 'E'
+            print(f'答案格式不匹配，模型回答：{response}')
+            answer = 'E'
         return answer
     
-    def prompt_generation(self, question:str, options:str):
+    def prompt_generation(self, question:str, options:str) -> tuple:
         def prefix_prompt_generation(question_type):
             if question_type == 'single':
-                type = '单项选择题'
+                type = '单选题'
             elif question_type == 'multiple':
-                type = '多项选择题'
+                type = '多选题'
             elif question_type == 'mix':
                 type = '不定项选择题'
             else:
-                type = '案例分析简答题'
-            return f'**说明**：你是一位专业的心理咨询助手，拥有丰富的心理学知识。现在有一道心理学知识的**{type}**，需要你利用自己的心理学知识进行解答。\n'
+                type = '简答题'
+            return f'你是一位专业的心理咨询助手，拥有丰富的心理学知识。现在有一道心理学知识的{type}，需要你利用自己的心理学知识进行解答。\n'
         def question_prompt_generation(question_type, question, options=''):
             if question_type == 'single':
                 prompt = '只有一个'
@@ -100,14 +89,27 @@ class GeneralQuestionHandler(QuestionHandler):
                 prompt = '有多个'
             elif question_type == 'mix':
                 prompt = '可能不止一个'
-            else:
-                prompt = '简答题'
-            return f'选项中{prompt}是正确答案，请从ABCD四个选项中选出你认为正确的选项。\n**题目**：{question}\n**选项**：{options}\n'
-        prefix_prompt = prefix_prompt_generation(self.question_type)
+            options = str(options).strip('{}').replace("'", "").replace(",", "\n").replace(":", ".").replace(" ", "").strip()
+            return f'**题目**：\n{question}\n**选项**：\n{options}\n选项中{prompt}是正确答案，**请先给出你的解题思路，再从ABCD四个选项中选出你认为正确的选项**。'
+        system_prompt = prefix_prompt_generation(self.question_type)
         question_prompt = question_prompt_generation(self.question_type, question, options)
-        answer_prompt = f'你的答案是（仅回复相应的字母编号）：'
+        # answer_prompt = f'你的答案是（仅回复相应的字母编号）：'
+        answer_prompt = f'你的答案是：'
+        user_prompt = question_prompt + answer_prompt
+        
+        return system_prompt, user_prompt
+    
+    def simple_prompt_generation(self, question:str, options:str) -> tuple:
+        if self.question_type == 'single':
+            type_prompt = '只有一个'
+        else:
+            type_prompt = '有多个'
+        system_prompt = ""
+        question_prompt = f"请回答下面这道心理学相关的选择题\n**题目**：\n{question}\n**选项**：\n{options}\n"
+        answer_prompt = f"选项中{type_prompt}是正确答案，从ABCD四个选项中选出你认为正确的选项。你的答案是："
+        user_prompt = question_prompt + answer_prompt
 
-        return prefix_prompt + question_prompt + answer_prompt
+        return system_prompt, user_prompt
     
 
 class CaseQuestionHandler(QuestionHandler):
@@ -146,21 +148,26 @@ class CaseQuestionHandler(QuestionHandler):
         case = self.cases[index]
         prompts = []
         for i in range(len(case['qa_pair'])):
-            prefix_prompt = '**说明**：你是一位专业的心理咨询助手，拥有丰富的心理学知识和心理咨询经验。现在有一道心理咨询背景下的案例分析**选择题**，需要你利用自己的心理学知识以及心理咨询经验进行解答。\n'
-            question_prompt = f"**求助者的个人信息如下**：{case['general_info']}\n" + f"**心理咨询内容如下**：{case['case_introduction']}\n" + f"请仔细阅读上述个人信息和心理咨询内容，回答下列问题。\n" \
-            + f"**问题**：{case['qa_pair'][i][0]}\n"  + f"**选项**：{case['qa_pair'][i][2]}\n"
-            answer_prompt = '你的答案是（仅回复相应的字母编号）：'
-            prompts.append(prefix_prompt + question_prompt + answer_prompt)
+            options = str(case['qa_pair'][i][2]).strip('{}').replace("'", "").replace(",", "\n").replace(":", ".").replace(" ", "").strip()
+            system_prompt = '你是一位专业的心理咨询助手，拥有丰富的心理学知识和心理咨询经验。现在有一道基于心理咨询场景的选择题，需要你利用自己的心理学知识以及心理咨询经验进行解答。\n'
+            question_prompt = f"**求助者的个人信息**：\n{case['general_info'].strip()}\n" + f"**心理咨询内容**：\n{case['case_introduction'].strip()}\n" + "请仔细阅读上述个人信息和心理咨询内容，紧扣上述材料，回答下列问题：\n" \
+            + f"**题目**：\n{case['qa_pair'][i][0]}\n"  + f"**选项**：\n{options}\n"
+            # answer_prompt = '你的答案是（仅回复相应的字母编号）：'
+            answer_prompt = '选项中可能不止一个是正确答案，**请先给出你的解题思路，再从ABCD四个选项中选出你认为正确的选项**。你的答案是：'
+            user_prompt = question_prompt + answer_prompt
+            prompts.append((system_prompt, user_prompt))
         return prompts
     
     def essay_prompt_generation(self, index:int):
         case = self.cases[index]
         prompts = []
         for i in range(len(case['qa_pair'])):
-            prefix_prompt = '**说明**：你是一位专业的心理咨询助手，拥有丰富的心理学知识和心理咨询经验。现在有一道心理咨询背景下的案例分析**简答题**，需要你利用自己的心理学知识以及心理咨询经验进行解答。\n'
-            question_prompt = f"**求助者的个人信息如下**：【{case['general_info']}】\n" + f"**心理咨询内容如下**：【{case['case_introduction']}】\n" + "请仔细阅读上述个人信息和心理咨询内容，回答下列问题。\n" + f"**问题**：{case['qa_pair'][i][0]}\n"
-            answer_prompt = '你的答案是（仅回复你的回答）：'
-            prompts.append(prefix_prompt + question_prompt + answer_prompt)
+            system_prompt = '你是一位专业的心理咨询助手，拥有丰富的心理学知识和心理咨询经验。现在有一道基于心理咨询场景的简答题，需要你利用自己的心理学知识以及心理咨询经验进行解答。\n'
+            question_prompt = f"**求助者的个人信息**：\n{case['general_info'].strip()}\n" + f"**心理咨询内容**：\n{case['case_introduction'].strip()}\n" + "请仔细阅读上述个人信息和心理咨询内容，紧扣上述材料，回答下列问题。\n" + f"**题目**：{case['qa_pair'][i][0].strip()}\n"
+            # answer_prompt = '你的答案是（仅回复你的回答）：'
+            answer_prompt = '你的答案是：'
+            user_prompt = question_prompt + answer_prompt
+            prompts.append((system_prompt, user_prompt))
         return prompts
     
     def prompt_generation(self, index:int):
@@ -180,24 +187,15 @@ class CaseQuestionHandler(QuestionHandler):
 
     def model_answer_processing(self, response):
         # 正则匹配表达式
-        if self.question_type != 'essay':
-            # answer_rule = r'[ABCD]+(?=】)'
-            answer_rule = r'[ABCD]+$'
-            try:
-                # answer = re.findall(answer_rule, response)
-                answer = re.findall(answer_rule, response)[0]
-            except:   
-                try:
-                    answer_rule = r'[^ABCD]*([ABCD]+)[^ABCD]*'
-                    answer = re.findall(answer_rule, response)[0]
-                except:
-                    # print(f'答案格式不匹配，模型回答：{response}')
-                    answer = 'E'
-        else:
-            answer_rule = r'(?<=:).+?(?=})'
-            answer = re.findall(answer_rule, response)
-            # if len(answer) == 0:
-                # print(f'答案格式不匹配...')
+        # answer_rule = r"[ABCD]+(?!.*[ABCD])"
+        answer_rule = r"[ABCD]?['\"]?\s*[、,，和]?\s*[选项]*['\"]?[ABCD]?['\"]?\s*[、,，和]?\s*[选项]*['\"]?[ABCD]?['\"]?\s*[、,，和]?\s*[选项]*['\"]?[ABCD](?!.*[ABCD])"
+        try:
+            answer_str = re.findall(answer_rule, response, re.S)[0]
+            answer_list = re.findall(r"[ABCD]+", answer_str)
+            answer = ''.join(answer_list)
+        except:   
+            print(f'答案格式不匹配，模型回答：{response}')
+            answer = 'E'
         return answer
 
     
@@ -207,4 +205,13 @@ if __name__ == '__main__':
     question_files = [os.path.dirname(os.path.abspath(__file__)) + '/questions/cases/mix/third/' + '11-13 案例混合选择.json']
     question_handler = CaseQuestionHandler(question_files, answer_files, question_type)
     prompt = question_handler.mix_choice_prompt_generation(0)
-    print(prompt[0])
+    print(prompt[0][0])
+
+    # rule = r"[ABCD]?['\"]?\s*[、,，和]?\s*[选项]*['\"]?[ABCD]?['\"]?\s*[、,，和]?\s*[选项]*['\"]?[ABCD]?['\"]?\s*[、,，和]?\s*[选项]*['\"]?[ABCD](?!.*[ABCD])"
+    # prompt = "Hello world! This is BC a test string containing some 'A'，'B'和 'C,     'D' letters like oifhoifhia foiwqf"
+    # # rule = r"([ABCD]?'?[、,和]?'?){3}[ABCD](?!.*[ABCD])"
+    # answer = re.findall(rule, '''综上所述，选项B和选项C是正确的答案。''', re.S)
+    # options = re.findall(r"[ABCD]+", answer[0])
+    # print(answer)
+    # print("".join(options))
+ 
