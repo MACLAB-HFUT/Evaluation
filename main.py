@@ -83,6 +83,7 @@ def general_question(
     question_handler = GeneralQuestionHandler(question_files, result_file, question_type)
     # 记录评估结果的参数
     sum_correct_rate, completely_correct_count, partially_correct_count, wrong_count, missing_count, total_count = 0., 0, 0, 0, 0, len(question_handler.questions)
+    all_except_miss_count = 0
     answers = pd.DataFrame({'模型答案': [], '真实答案': []})
     # 开始测评
     print('-' * 50 + "测评开始" + '-' * 50)
@@ -103,6 +104,8 @@ def general_question(
             answer_type, correct_rate = correct_rate_compute(model_answer, true_answer)
             if model_answer == 'E':
                 missing_count += 1
+            # else:
+            #     all_except_miss_count += 1
             if answer_type == 0:
                 completely_correct_count += 1
             elif answer_type == 1:
@@ -117,17 +120,22 @@ def general_question(
             # 输出进度
             if (i + 1) % 50 == 0:
                 if question_type == 'single':
-                    print(f'目前已回答{i + 1}题，{completely_correct_count}题正确，{wrong_count}题错误。正确率：{(completely_correct_count / (i + 1)) * 100}%')
+                    # print(f'目前已回答{i + 1}题，{completely_correct_count}题正确，{wrong_count}题错误。正确率：{(completely_correct_count / (i + 1)) * 100}%')
+                    print(f'目前已询问{i + 1}题，回答{i + 1 - missing_count}题，{completely_correct_count}题正确，{wrong_count}题错误。正确率：{((completely_correct_count + partially_correct_count) / (i + 1 - missing_count)) * 100}%')
                 else:
-                    print(f'目前已回答{i + 1}题，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选，{missing_count}题未答或漏答。严格正确率：{(completely_correct_count / (i + 1)) * 100}%，弹性正确率：{(sum_correct_rate / (i + 1)) * 100}%')
+                    # print(f'目前已回答{i + 1}题，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选，{missing_count}题未答或漏答。严格正确率：{(completely_correct_count / (i + 1)) * 100}%，弹性正确率：{(sum_correct_rate / (i + 1)) * 100}%')
+                    print(f'目前已回答{i + 1}题，回答{all_except_miss_count}题，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选。严格正确率：{(completely_correct_count / all_except_miss_count) * 100}%，弹性正确率：{(sum_correct_rate / all_except_miss_count) * 100}%')
             time.sleep(sleep_time)
             bar()
     
+    # print(missing_count, completely_correct_count, partially_correct_count, wrong_count)
     # 测评总结
     if question_type == 'single':
-        summary = f'共{total_count}题，{completely_correct_count}题正确，{wrong_count}题错误。正确率：{(completely_correct_count / (i + 1)) * 100}%'
+        # summary = f'共{total_count}题，{completely_correct_count}题正确，{wrong_count}题错误。正确率：{(completely_correct_count / (i + 1)) * 100}%'
+        summary = f'共回答{total_count - missing_count}题，{completely_correct_count}题正确，{wrong_count}题错误。正确率：{((completely_correct_count + partially_correct_count) / (total_count - missing_count)) * 100}%'
     else:
-        summary = f'共{total_count}题，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选，{missing_count}题未答或漏答。严格正确率：{(completely_correct_count / total_count) * 100}%，弹性正确率：{(sum_correct_rate / total_count) * 100}%'
+        # summary = f'共{total_count}题，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选，{missing_count}题未答或漏答。严格正确率：{(completely_correct_count / total_count) * 100}%，弹性正确率：{(sum_correct_rate / total_count) * 100}%'
+        summary = f'共回答{total_count - missing_count}题，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选。严格正确率：{(completely_correct_count / (total_count - missing_count)) * 100}%，弹性正确率：{(sum_correct_rate / (total_count - missing_count)) * 100}%'
     print(summary)
 
     # 保存结果
@@ -193,12 +201,14 @@ def case_question(
                 # print(f'{i+1}.{j+1}. 模型答案：{model_answer} 正确答案：{true_answer}')
             # 输出进度
             if question_type == "mix" and (i + 1) % 10 == 0:
-                print(f'目前已回答{i + 1}道大题，共包含{total_count}道具体题目。其中，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选，{missing_count}题未答或漏答。严格正确率：{(completely_correct_count / total_count) * 100}%，弹性正确率：{(sum_correct_rate / total_count) * 100}%')
+                # print(f'目前已回答{i + 1}道大题，共包含{total_count}道具体题目。其中，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选，{missing_count}题未答或漏答。严格正确率：{(completely_correct_count / total_count) * 100}%，弹性正确率：{(sum_correct_rate / total_count) * 100}%')
+                print(f'目前已回答{i + 1}道大题，{total_count - missing_count}道具体题目。其中，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选。严格正确率：{(completely_correct_count / (total_count - missing_count)) * 100}%，弹性正确率：{(sum_correct_rate / (total_count - missing_count)) * 100}%')
             time.sleep(sleep_time)
             bar()
     
     if question_type == "mix":
-        summary = f'共{questions_len}道大题，{total_count}道具体题目。其中，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选，{missing_count}题未答或漏答。严格正确率：{(completely_correct_count / total_count) * 100}%，弹性正确率：{(sum_correct_rate / total_count) * 100}%'
+        # summary = f'共{questions_len}道大题，{total_count}道具体题目。其中，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选，{missing_count}题未答或漏答。严格正确率：{(completely_correct_count / total_count) * 100}%，弹性正确率：{(sum_correct_rate / total_count) * 100}%'
+        summary = f'共{questions_len}道大题，回答{total_count - missing_count}道具体题目。其中，{completely_correct_count}题完全正确，{partially_correct_count}题部分正确，{wrong_count}题多选或错选。严格正确率：{(completely_correct_count / (total_count - missing_count)) * 100}%，弹性正确率：{(sum_correct_rate / (total_count - missing_count)) * 100}%'
     else:
         answer_pairs = [answers["模型答案"].values.tolist(), answers["正确答案"].values.tolist()]
         result = compute_metrics(answer_pairs)

@@ -101,7 +101,7 @@ class LLMTransfer:
         ]
         
         response = client.chat.completions.create(
-            model = "Qwen1.5-14B-Chat",
+            model = "/data/zonepg/code/LLaMA-Factory/saves/Qwen1.5-14B-Chat/full/sft/QAs+ds+dialogue/v2",
             messages = message,
             stream=False,
             temperature=self.temperature,
