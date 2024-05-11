@@ -93,7 +93,7 @@ class LLMTransfer:
         url['qwen14B'] = 'http://3d8b77a6.r2.cpolar.top/v1'
         url['sft_qwen'] = 'https://642a2878.r18.cpolar.top/v1'
         url['sft_baichuan'] = 'http://642a2878.r18.cpolar.top/v1'
-        client = OpenAI(base_url="http://llmsapi.cpolar.top/v1", api_key="sk-coaihv832rfj0qaj09")
+        client = OpenAI(base_url="http://llmsapi.vip.cpolar.cn/v1", api_key="sk-coaihv832rfj0qaj09")
 
         message = [
             {"role": "system", "content": prompt[0]},
@@ -101,12 +101,14 @@ class LLMTransfer:
         ]
         
         response = client.chat.completions.create(
-            model = "Qwen-14B-Chat-Lora",
+            model = "Qwen1.5-14B-Chat",
             messages = message,
             stream=False,
             temperature=self.temperature,
             timeout=600
         )
+
+        # print(f'访问成功:{response.choices[0].message.content.strip()}')
         # print(response.choices[0].message.content.strip())
 
         return response.choices[0].message.content.strip()

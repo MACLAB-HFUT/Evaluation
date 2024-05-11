@@ -3,6 +3,9 @@ from rouge import Rouge
 import numpy as np
 import jieba
 
+import sys
+sys.setrecursionlimit(100000)
+
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
 
@@ -24,8 +27,12 @@ def compute_metrics(eval_pred):
             hypothesis=decoded_pred.split(' '),
             smoothing_function=SmoothingFunction().method1,weights=weights
         ))
+    
     bleu /= len(decoded_labels)
-    result = rouge.get_scores(decoded_preds, decoded_labels, avg=True)
+    try:
+        result = rouge.get_scores(decoded_preds, decoded_labels, avg=True)
+    except:
+        print(f"RecursionError, response: {decoded_preds[0]}")
     result = {key: value['f'] * 100 for key, value in result.items()}
     result["bleu"] = {'bleu_1':bleu[0] * 100,'bleu_2':bleu[1] * 100,'bleu_3':bleu[2] * 100,'bleu_4':bleu[3] * 100}
     return result
