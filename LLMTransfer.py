@@ -14,6 +14,10 @@ class LLMTransfer:
         self.model_name = model_name
         self.temperature = temperature
         self.b_local = b_local
+        #self.sft_model_path = "/data/zonepg/code/LLaMA-Factory/saves/Qwen1.5-7B-Chat/full/sft/QAs+ds+dialogue/v2"
+        self.sft_model_path = "/data/zonepg/code/LLaMA-Factory/saves/Qwen1.5-7B/full/sft/QAs+ds+dialogue/v2"
+        if model_name == "sft":
+            print("微调模型路径：", self.sft_model_path)
         if b_local:
             self.deployer = Deployer(model_name=model_name, temperature=temperature)
 
@@ -100,16 +104,17 @@ class LLMTransfer:
             {"role": "user", "content": prompt[1]},
         ]
         
-        response = client.chat.completions.create(
-            model = "/data/zonepg/code/LLaMA-Factory/saves/Qwen1.5-14B-Chat/full/sft/QAs+ds+dialogue/v2",
-            messages = message,
-            stream=False,
-            temperature=self.temperature,
-            timeout=600
-        )
-
-        # print(f'访问成功:{response.choices[0].message.content.strip()}')
-        # print(response.choices[0].message.content.strip())
+        try:
+            response = client.chat.completions.create(
+                model = self.sft_model_path,
+                messages = message,
+                stream=False,
+                temperature=self.temperature,
+                timeout=60,
+                # max_tokens=1024,
+            )
+        except:
+            return "模型回复超时！"
 
         return response.choices[0].message.content.strip()
     
