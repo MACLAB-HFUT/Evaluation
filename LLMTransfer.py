@@ -14,8 +14,8 @@ class LLMTransfer:
         self.model_name = model_name
         self.temperature = temperature
         self.b_local = b_local
-        #self.sft_model_path = "/data/zonepg/code/LLaMA-Factory/saves/Qwen1.5-7B-Chat/full/sft/QAs+ds+dialogue/v2"
-        self.sft_model_path = "/data/zonepg/code/LLaMA-Factory/saves/Qwen1.5-7B/full/sft/QAs+ds+dialogue/v2"
+        #self.sft_model_path = "/data/zonepg/models/Qwen/Qwen1.5-7B-Chat"
+        self.sft_model_path = "/data/zonepg/models/Qwen/Qwen1.5-7B-Chat-LoRA"
         if model_name == "sft":
             print("微调模型路径：", self.sft_model_path)
         if b_local:
@@ -115,6 +115,7 @@ class LLMTransfer:
             )
         except:
             return "模型回复超时！"
+        # print(response)
 
         return response.choices[0].message.content.strip()
     
